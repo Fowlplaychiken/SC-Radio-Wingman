@@ -6,9 +6,9 @@
 
 Play community radio and music from your own library through Wingman AI. Tune in to **The Base** or **HCN Radio**, ask for an album, or shuffle your playlist. Audio plays directly through mpv, with Wingman’s standard custom-skill interface.
 
-**v0.2.0** · **Wingman custom skill API v3** · **Verified on Windows with Wingman 3.2.11** · [GPL-3.0](LICENSE)
+**v0.2.1** · **Wingman custom skill API v3** · **Tested on Windows** · [GPL-3.0](LICENSE)
 
-**[Download the install ZIP](https://raw.githubusercontent.com/Fowlplaychiken/SC-Radio-Wingman/NewRepo/downloads/sc_radio-0.2.0.zip)** · [Quick start](#install) · [What to say](#use) · [Add stations or music](#configure-stations-and-songs)
+**[Download the install ZIP](https://raw.githubusercontent.com/Fowlplaychiken/SC-Radio-Wingman/NewRepo/downloads/sc_radio-0.2.1.zip)** · [Quick start](#install) · [What to say](#use) · [Add stations or music](#configure-stations-and-songs)
 
 | Live radio | Your music | Playback controls |
 | --- | --- | --- |
@@ -16,10 +16,12 @@ Play community radio and music from your own library through Wingman AI. Tune in
 
 ## Install
 
-1. Install mpv from a trusted build listed on the [official mpv installation page](https://mpv.io/installation/). If you download an archive, extract it to a folder you’ll keep.
-2. [Download SC Radio](https://raw.githubusercontent.com/Fowlplaychiken/SC-Radio-Wingman/NewRepo/downloads/sc_radio-0.2.0.zip) and extract it. On Windows, paste `%APPDATA%\ShipBit\WingmanAI\custom_skills` into File Explorer’s address bar and copy the extracted `sc_radio` folder there. Open it to check that `default_config.yaml` sits directly inside `sc_radio`. On other platforms, use your Wingman installation’s custom skills folder.
-3. Restart Wingman, add **SC Radio** to your profile, and set **mpv executable** in the skill’s settings. On Windows, right-click `mpv.exe` in File Explorer, choose **Copy as path**, and paste it into the field without the surrounding quotes. On Linux, a typical path is `/usr/bin/mpv`.
-4. Ask **“Tune in to The Base”** or **“Play HCN Radio.”** Both stations are ready to select. Leave **Station list** at its defaults unless you want to change it.
+1. [Download SC Radio](https://raw.githubusercontent.com/Fowlplaychiken/SC-Radio-Wingman/NewRepo/downloads/sc_radio-0.2.1.zip) and extract it. On Windows, paste `%APPDATA%\ShipBit\WingmanAI\custom_skills` into File Explorer’s address bar and copy the extracted `sc_radio` folder there. On other platforms, use your Wingman installation’s custom skills folder.
+2. On Windows x64, open `sc_radio`, right-click `setup-player.ps1`, and choose **Run with PowerShell**. On Windows 11, the command may be under **Show more options**. Setup reuses mpv from a recognized location or downloads and checks the official release if needed. You can skip this step if mpv is already installed in a recognized location. Setup needs no administrator privileges.
+3. Restart Wingman and add **SC Radio** to your profile. Leave **mpv executable** blank for automatic detection. For a custom install location or another platform without a detected player, install mpv from the [official installation page](https://mpv.io/installation/) and enter its full executable path. Windows **Copy as path** works with or without quotes.
+4. Ask **“Tune in to The Base”** or **“Play HCN Radio.”** Leave **Station list** at its defaults unless you want to change it.
+
+The Windows helper downloads mpv directly from its publisher on demand and checks the archive and player against pinned SHA-256 hashes. Wingman only launches the player for playback. See the [player provenance](NOTICE.md#mpv-player).
 
 For your own music, add MP3 or WAV files to Wingman’s **Audio Library**, select them under **SC Radio → Personal playlist**, then ask **“Shuffle my music.”** You can leave the playlist empty if you only use radio.
 
@@ -82,8 +84,9 @@ My station = https://radio.example.org/live.mp3
 ```
 
 Use a broadcaster's published direct stream URL. A station homepage, embedded
-player, or video page is not an audio feed and will not work. SC Radio accepts
-up to 32 uniquely named HTTPS stations. The preset feeds were checked against
+player, or video page is not an audio feed and will not work. Give each HTTPS
+station a unique name. Ask Wingman for more stations to page through long lists.
+The preset feeds were checked against
 broadcaster sources; see [`NOTICE.md`](NOTICE.md) for provenance and
 verification details. External streams can change, become unavailable, or use
 a codec your local player does not support. Live streams may resume at the
@@ -95,7 +98,8 @@ files that remain inside that library. It plays audio files you supply. The rele
 
 ## Troubleshooting
 
-- **“Set an absolute path to your installed mpv player…”** Check that the setting points to an existing `mpv.exe` on Windows or `mpv` executable on macOS/Linux. A command name such as `mpv` alone is not accepted.
+- **mpv cannot be found:** On Windows x64, run `setup-player.ps1` and leave the player setting blank. If your system blocks scripts, install mpv separately and select the full executable path.
+- **The downloaded player failed verification:** Remove `%LOCALAPPDATA%\SC Radio\mpv-0.42.0-x64` and rerun `setup-player.ps1`.
 - **Audio does not start:** Confirm mpv opens on your system, the selected operating-system audio output works, and the stream or file is reachable. Try another station or a selected local song to narrow down whether the issue is the feed or player.
 - **A station fails to open:** Confirm the URL is a direct HTTPS audio feed, not a webpage. Check the broadcaster's current stream address and whether its audio format is supported by your mpv build.
 - **A song is missing:** Confirm it is in Wingman's Audio Library, selected in SC Radio's **Personal playlist** setting, and is an MP3 or WAV file. Then ask Wingman to list the available sources.
@@ -117,7 +121,7 @@ skill API v3 and Audio Library picker. The skill does not depend on the Star
 Citizen Computer application, game files, game process, or another project
 service at runtime. The source and build recipe are included in this
 repository; the install ZIP contains the skill and its bundled tag reader.
-Install mpv separately and add your own music through Wingman’s Audio Library. See [`NOTICE.md`](NOTICE.md) for station and source
+Add your own music through Wingman’s Audio Library. See [`NOTICE.md`](NOTICE.md) for station and source
 provenance, and [`LICENSE`](LICENSE) for redistribution terms.
 
 Bug reports and contributions should include the SC Radio release version,
@@ -135,7 +139,7 @@ the skill. To run the tests and build an install ZIP from a standalone checkout:
 ```shell
 python -m pip install pytest PyYAML
 python -m pytest -q
-python scripts/package.py sc_radio-0.2.0.zip
+python scripts/package.py sc_radio-0.2.1.zip
 ```
 
 The test suite uses inert Wingman and player fixtures. Live station playback

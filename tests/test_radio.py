@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import os
 import struct
 import sys
 import threading
@@ -66,6 +67,37 @@ def test_station_config_and_validation(radio):
     ):
         with pytest.raises(ValueError):
             radio.stations_from(invalid)
+
+
+def test_large_station_catalogue_lists_in_pages(radio):
+    configured = "\n".join(f"Station {index:03} = https://example.com/{index}" for index in range(101))
+    assert len(radio.stations_from(configured)) == 101
+    skill = radio.ScRadio({"stations": configured, "audio_config": None}, None, None)
+    try:
+        result, _ = asyncio.run(skill.execute_tool("sc_radio_list", {"kind": "stations"}, None))
+        assert "Station 031" in result and "Station 032" not in result
+        assert "Next station offset: 32" in result
+        result, _ = asyncio.run(skill.execute_tool("sc_radio_list", {"kind": "stations", "station_offset": 96}, None))
+        assert "Station 100" in result and "Next station offset" not in result
+    finally:
+        asyncio.run(skill.unload())
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows player discovery")
+def test_windows_player_prefers_existing_and_checks_managed_hash(radio, tmp_path, monkeypatch):
+    for name in ("ProgramFiles", "LOCALAPPDATA", "USERPROFILE"):
+        monkeypatch.setenv(name, str(tmp_path / name))
+    managed = tmp_path / "LOCALAPPDATA" / "SC Radio/mpv-0.42.0-x64/mpv.exe"
+    managed.parent.mkdir(parents=True)
+    managed.write_bytes(b"not the pinned player")
+    with pytest.raises(radio.PlaybackError, match="failed verification"):
+        radio.player_executable("")
+
+    existing = tmp_path / "ProgramFiles" / "mpv/mpv.exe"
+    existing.parent.mkdir(parents=True)
+    existing.touch()
+    assert radio.player_executable("") == existing
+    assert radio.player_executable(f'"{existing}"') == existing
 
 
 def test_library_files_stay_inside_selection_and_library(radio, tmp_path):

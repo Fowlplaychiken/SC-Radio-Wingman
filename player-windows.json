@@ -1,0 +1,13 @@
+{
+  "archive_url": "https://github.com/mpv-player/mpv/releases/download/v0.42.0/mpv-v0.42.0-x86_64-pc-windows-msvc.zip",
+  "archive_sha256": "8dd69cbab079086765fa5d873c09513b2834b85d146c1301718a757e8c0595ef",
+  "executable_sha256": "2431f60d186eb57c01f86d65a8b2f7ef3eefc4af70564a749e6b06e4d315f8f2",
+  "managed_location": "SC Radio/mpv-0.42.0-x64/mpv.exe",
+  "existing_locations": [
+    ["ProgramFiles", "mpv/mpv.exe"],
+    ["ProgramFiles", "WinGet/Links/mpv.exe"],
+    ["LOCALAPPDATA", "Microsoft/WinGet/Links/mpv.exe"],
+    ["USERPROFILE", "scoop/apps/mpv/current/mpv.exe"],
+    ["USERPROFILE", "scoop/apps/mpv-git/current/mpv.exe"]
+  ]
+}

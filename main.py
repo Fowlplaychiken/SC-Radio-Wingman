@@ -10,6 +10,8 @@ import subprocess
 import tempfile
 import threading
 import unicodedata
+from hashlib import file_digest
+from itertools import islice
 from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import urlsplit
@@ -22,6 +24,40 @@ from skills.skill_base import Skill
 
 class PlaybackError(RuntimeError):
     pass
+
+
+def player_executable(configured: str) -> Path:
+    expected_name = "mpv.exe" if os.name == "nt" else "mpv"
+    if configured.strip():
+        path = Path(configured.strip().strip('"'))
+        if path.is_absolute() and path.name.lower() == expected_name and path.is_file():
+            return path
+        raise PlaybackError("Set an absolute path to your installed mpv player in the skill settings.")
+
+    if os.name == "nt":
+        manifest = json.loads(Path(__file__).with_name("player-windows.json").read_text(encoding="utf-8"))
+        for variable, relative in manifest["existing_locations"]:
+            base = Path(os.environ.get(variable, ""))
+            path = base / relative
+            if path.is_absolute() and path.is_file():
+                return path
+
+        managed = Path(os.environ.get("LOCALAPPDATA", "")) / manifest["managed_location"]
+        if managed.is_absolute() and managed.is_file():
+            try:
+                with managed.open("rb") as stream:
+                    if file_digest(stream, "sha256").hexdigest() == manifest["executable_sha256"]:
+                        return managed
+            except OSError:
+                pass
+            raise PlaybackError("SC Radio's downloaded mpv failed verification. See the README for repair steps.")
+        raise PlaybackError("mpv was not found. Run setup-player.ps1 from the SC Radio folder or set the mpv executable path.")
+
+    for directory in ("/usr/bin", "/usr/local/bin", "/opt/homebrew/bin", "/opt/local/bin", "/Applications/mpv.app/Contents/MacOS"):
+        path = Path(directory) / expected_name
+        if path.is_file():
+            return path
+    raise PlaybackError("mpv was not found. Install mpv or set the mpv executable path in the skill settings.")
 
 
 class SkillLoopClosed(RuntimeError):
@@ -154,13 +190,7 @@ class Player:
 
     async def start(self, executable: str, sources: list[str], volume: int, *, shuffle: bool = False):
         await self.stop()
-        # Use an owner-selected absolute executable, never a tool argument or PATH lookup.
-        path = Path(executable)
-        expected_name = "mpv.exe" if os.name == "nt" else "mpv"
-        if not path.is_absolute() or path.name.lower() != expected_name or not path.is_file():
-            raise PlaybackError(
-                "Set an absolute path to your installed mpv player in the skill settings."
-            )
+        path = player_executable(executable)
         if os.name == "nt":
             address = rf"\\.\pipe\wingman-sc-radio-{uuid4().hex}"
             kwargs = {"creationflags": subprocess.CREATE_NO_WINDOW}
@@ -278,7 +308,6 @@ def stations_from(setting: str) -> dict[str, str]:
             or len(name) > 60
             or len(url) > 2048
             or name.casefold() in names
-            or len(stations) >= 32
             or parsed.scheme != "https"
             or not parsed.hostname
             or parsed.username is not None
@@ -288,7 +317,7 @@ def stations_from(setting: str) -> dict[str, str]:
             or any(c.isspace() for c in url)
             or any(ord(c) < 32 or ord(c) == 127 for c in url)
         ):
-            raise ValueError("Use up to 32 uniquely named stations with direct HTTPS audio feeds.")
+            raise ValueError("Use uniquely named stations with direct HTTPS audio feeds.")
         # Force URL port validation before handing a source to the player.
         _ = parsed.port
         names.add(name.casefold())
@@ -391,7 +420,13 @@ class ScRadio(Skill):
                 "sc_radio_list",
                 "List configured broadcast stations or selected local music by songs, artists, albums or genres. "
                 "Use for ordinary catalogue questions or to look up names before playing.",
-                {"kind": {"type": "string", "enum": ["stations", "songs", "artists", "albums", "genres"]}},
+                {
+                    "kind": {"type": "string", "enum": ["stations", "songs", "artists", "albums", "genres"]},
+                    "station_offset": {
+                        "type": "integer", "minimum": 0,
+                        "description": "For more stations, use the next station offset from the previous result.",
+                    },
+                },
             ),
             tool_definition(
                 "sc_radio_play",
@@ -512,7 +547,7 @@ class ScRadio(Skill):
 
     async def _execute(self, tool_name, parameters):
         if tool_name == "sc_radio_list":
-            return self._list(parameters.get("kind"))
+            return self._list(parameters.get("kind"), parameters.get("station_offset", 0))
         if tool_name == "sc_radio_play":
             return await self._play(
                 parameters.get("kind"), parameters.get("name"), parameters.get("shuffle", False),
@@ -538,9 +573,17 @@ class ScRadio(Skill):
             return await self._control(parameters.get("action"))
         return "Unknown SC Radio command."
 
-    def _list(self, kind):
+    def _list(self, kind, station_offset=0):
         stations, paths = self._sources()
-        station_list = f"Stations: {', '.join(stations) or 'none'}."
+        if type(station_offset) is not int or station_offset < 0:
+            return "Choose a nonnegative station offset."
+        if station_offset and station_offset >= len(stations):
+            return "No more stations."
+        end = station_offset + 32
+        page = islice(stations, station_offset, end)
+        station_list = f"Stations: {', '.join(page) or 'none'}."
+        if end < len(stations):
+            station_list += f" Showing {station_offset + 1}–{end} of {len(stations)}. Next station offset: {end}."
         if kind == "stations":
             return station_list
         tracks = self._tracks(paths)

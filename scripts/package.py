@@ -24,6 +24,8 @@ FILES = (
     "assets/sc-radio.svg",
     "default_config.yaml",
     "main.py",
+    "player-windows.json",
+    "setup-player.ps1",
     *TINYTAG_HASHES,
 )
 

@@ -1,7 +1,8 @@
 # Radio skill notices
 
-This skill does not bundle a stream player or audio recordings. It asks the
-owner to select an existing `mpv` executable and uses Wingman's public v3 Audio Library file picker for the user's music selection. The skill source
+This skill ZIP contains no stream player binaries or audio recordings. It uses
+mpv for playback and Wingman's public v3 Audio Library file picker for the
+user's music selection. The skill source
 is licensed under the repository's GPL-3.0 license in `LICENSE`. No mpv,
 Wingman, station or music implementation source is copied into the package.
 
@@ -29,6 +30,15 @@ These are external broadcast streams. Their publication permits listening in
 the broadcaster's intended player; it does not grant permission to record,
 redistribute or bundle their programming. Station availability and codec
 support depend on the current service and selected external player.
+
+## mpv player
+
+The optional Windows x64 setup helper uses the first-party Windows MSVC ZIP
+from [mpv 0.42.0](https://github.com/mpv-player/mpv/releases/tag/v0.42.0).
+It checks the published archive SHA-256 and the extracted executable SHA-256
+against `player-windows.json`. The release page provides mpv's source and
+build assets. SC Radio's Git repository and install ZIP contain the setup helper,
+which fetches the original ZIP directly from the publisher only when needed.
 
 ## TinyTag metadata reader
 

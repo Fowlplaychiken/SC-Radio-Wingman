@@ -1,11 +1,11 @@
 module: skills.sc_radio.main
 name: ScRadio
 api_version: 3
-version: 0.2.0
+version: 0.2.1
 display_name: SC Radio
 author: Star Citizen Computer contributors
 description:
-  en: Play community radio or your selected Wingman Audio Library songs by voice using a separately installed mpv player.
+  en: Play community radio or your selected Wingman Audio Library songs by voice using mpv.
 hint:
   en: List broadcast stations or personal music. Play by song, artist, album, or genre. Shuffle music, manage the queue, or control playback.
 tags:
@@ -16,7 +16,7 @@ discoverable_by_default: true
 custom_properties:
   - id: player_path
     name: mpv executable
-    hint: Absolute path to an existing mpv executable. This skill does not install mpv.
+    hint: Leave blank to detect mpv. Enter an absolute executable path only to use a different copy.
     property_type: string
     value: ""
     required: false
