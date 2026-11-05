@@ -1,0 +1,42 @@
+module: skills.sc_radio.main
+name: ScRadio
+api_version: 3
+version: 0.2.0
+display_name: SC Radio
+author: Star Citizen Computer contributors
+description:
+  en: Play community radio or your selected Wingman Audio Library songs by voice using a separately installed mpv player.
+hint:
+  en: List broadcast stations or personal music. Play by song, artist, album, or genre. Shuffle music, manage the queue, or control playback.
+tags:
+  - Audio
+  - Game
+auto_activate: false
+discoverable_by_default: true
+custom_properties:
+  - id: player_path
+    name: mpv executable
+    hint: Absolute path to an existing mpv executable. This skill does not install mpv.
+    property_type: string
+    value: ""
+    required: false
+  - id: stations
+    name: Station list
+    hint: One Name = https://direct-audio-feed entry per line. Edit this list to add or remove a preset.
+    property_type: textarea
+    value: |
+      The Base = https://listen.thebase.sc
+      HCN Radio = https://hcnradio.ddns.me/stream/1/
+    required: true
+  - id: audio_config
+    name: Personal playlist
+    hint: Select MP3 or WAV files from the Wingman Audio Library.
+    property_type: audio_files
+    required: true
+    options:
+      - label: multiple
+        value: true
+    value:
+      files: []
+      volume: 0.25
+      wait: false

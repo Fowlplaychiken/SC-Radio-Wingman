@@ -1,0 +1,2 @@
+dependencies/sc_radio_tinytag/** -text whitespace=cr-at-eol
+dependencies/sc_radio_tinytag/LICENSE -text whitespace=-blank-at-eof,cr-at-eol
