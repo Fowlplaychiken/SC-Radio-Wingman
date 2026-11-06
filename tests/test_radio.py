@@ -1,6 +1,7 @@
 import asyncio
 import importlib.util
 import os
+import subprocess
 import struct
 import sys
 import threading
@@ -28,7 +29,7 @@ def radio(monkeypatch, tmp_path):
             self.unloaded = False
 
         def retrieve_custom_property_value(self, name, errors):
-            return self.config[name]
+            return self.config.get(name)
 
         async def unload(self):
             self.unloaded = True
@@ -51,6 +52,10 @@ def test_station_config_and_validation(radio):
     stations = next(
         item["value"] for item in config["custom_properties"] if item["id"] == "stations"
     )
+    audio_config = next(
+        item["value"] for item in config["custom_properties"] if item["id"] == "audio_config"
+    )
+    assert audio_config["volume"] == 0.5
     assert radio.stations_from(stations) == {
         "The Base": "https://listen.thebase.sc",
         "HCN Radio": "https://hcnradio.ddns.me/stream/1/",
@@ -58,6 +63,10 @@ def test_station_config_and_validation(radio):
     assert radio.stations_from("Friend = https://example.com/listen?codec=mp3") == {
         "Friend": "https://example.com/listen?codec=mp3"
     }
+    defaulted = radio.ScRadio({"audio_config": None}, None, None)
+    assert defaulted._volume() == 50
+    saved_muted = radio.ScRadio({"audio_config": SimpleNamespace(volume=0)}, None, None)
+    assert saved_muted._volume() == 0
     for invalid in (
         "Bad = file:///etc/passwd",
         "Bad = http://example.com",
@@ -67,6 +76,80 @@ def test_station_config_and_validation(radio):
     ):
         with pytest.raises(ValueError):
             radio.stations_from(invalid)
+
+
+def test_pulsenet_is_opt_in_and_uses_existing_player(radio, monkeypatch, tmp_path):
+    live = "https://www.youtube.com/channel/UCIMaIJsfJEMi5yJIe5nAb0g/live"
+    playlist = "https://www.youtube.com/playlist?list=PLExample"
+    config = {"stations": "The Base = https://listen.thebase.sc", "audio_config": None}
+    skill = radio.ScRadio(config, None, None)
+    starts = []
+    resolver = tmp_path / "yt-dlp.exe"
+
+    async def catalogue():
+        return {"PulseNet": live, "CrossWind": playlist}
+
+    async def start(_executable, sources, volume, **options):
+        starts.append((sources, volume, options))
+
+    monkeypatch.setattr(skill.pulsenet, "stations", catalogue)
+    monkeypatch.setattr(skill.player, "start", start)
+    monkeypatch.setattr(radio.shutil, "which", lambda _name: None)
+
+    async def run():
+        assert "PulseNet" not in await skill._list("stations")
+        config["pulsenet_enabled"] = True
+        assert await skill._list("stations") == "Stations: The Base, PulseNet, CrossWind."
+        assert "Install yt-dlp" in await skill._play("station", "PulseNet")
+        assert not starts
+        monkeypatch.setattr(radio.shutil, "which", lambda _name: str(resolver))
+        assert await skill._play("station", "pulsenet") == "Playing PulseNet."
+        assert await skill._play("station", "CrossWind") == "Playing CrossWind."
+        assert await skill._play("station", "The Base") == "Playing The Base."
+        assert starts == [
+            ([live], 50, {"shuffle": False, "youtube_resolver": str(resolver)}),
+            ([playlist], 50, {"shuffle": False, "youtube_resolver": str(resolver)}),
+            (["https://listen.thebase.sc"], 50, {"shuffle": False}),
+        ]
+
+    asyncio.run(run())
+
+
+def test_pulsenet_catalog_refresh_and_outage(radio, monkeypatch):
+    import sc_radio_pulsenet as catalog
+
+    placeholder = "UUIMaIJsfJEMi5yJIe5nAb0g"
+    source = f"""window.STATIONS = [
+        {{label: 'Placeholder', playlistId: '{placeholder}'}},
+        {{label: 'CrossWind', playlistId: 'PLdistinct123', live: false}},
+        {{label: 'Duplicate', playlistId: 'PLdistinct123'}},
+        {{label: 'crosswind', playlistId: 'PLdifferent456'}},
+    ];"""
+    live = {"PulseNet": catalog.PULSENET_LIVE_URL}
+    expected = live | {"CrossWind": "https://www.youtube.com/playlist?list=PLdistinct123"}
+    assert catalog.parse_catalog(source) == expected
+    with pytest.raises(ValueError):
+        catalog.parse_catalog(source + "fetch('https://example.com');")
+
+    responses = iter((expected, OSError("offline"), live))
+
+    def fetch():
+        result = next(responses)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(catalog, "_fetch_catalog", fetch)
+    monkeypatch.setattr(catalog, "_REFRESH_SECONDS", 0)
+    monkeypatch.setattr(catalog, "_RETRY_SECONDS", 0)
+
+    async def run():
+        stations = catalog.PulseNetCatalog()
+        assert await stations.stations() == expected
+        assert await stations.stations() == expected
+        assert await stations.stations() == live
+
+    asyncio.run(run())
 
 
 def test_large_station_catalogue_lists_in_pages(radio):
@@ -298,6 +381,7 @@ def test_player_only_runs_selected_executable_and_kills_failed_start(radio, tmp_
 
     class Process:
         returncode = None
+        pid = 1234
 
         def kill(self):
             self.returncode = -1
@@ -314,6 +398,7 @@ def test_player_only_runs_selected_executable_and_kills_failed_start(radio, tmp_
         raise radio.PlaybackError("No audio opened.")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    monkeypatch.setattr(radio, "_windows_job_for_pid", lambda _pid: None)
     player = radio.Player()
     monkeypatch.setattr(player, "_wait_for_audio", failed_start)
 
@@ -333,6 +418,69 @@ def test_player_only_runs_selected_executable_and_kills_failed_start(radio, tmp_
         shuffled_args = spawned[1][0]
         assert "--shuffle" in shuffled_args[:-3]
         assert shuffled_args[-3:] == ("--", "one.wav", "two.wav")
+        with pytest.raises(radio.PlaybackError, match="PulseNet audio could not start"):
+            await player.start(str(executable), ["https://www.youtube.com/"], 25, youtube_resolver="yt-dlp")
+        youtube_args, _, youtube_process = spawned[2]
+        assert "--ytdl=yes" in youtube_args and "--ytdl=no" not in youtube_args
+        assert "--no-video" in youtube_args and "--force-window=no" in youtube_args
+        assert "--script-opt=ytdl_hook-ytdl_path=yt-dlp" in youtube_args
+        assert youtube_process.returncode == -1 and not player.running
+
+    asyncio.run(run())
+
+
+def test_windows_job_binding_failure_kills_and_reaps_child(radio, monkeypatch):
+    monkeypatch.setattr(radio.os, "name", "nt")
+    monkeypatch.setattr(radio.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(radio, "player_executable", lambda _configured: "mpv.exe")
+    spawned = []
+
+    class Process:
+        returncode = None
+        pid = 1234
+
+        def kill(self):
+            self.returncode = -1
+
+        async def wait(self):
+            return self.returncode
+
+    async def spawn(*_args, **_kwargs):
+        process = Process()
+        spawned.append(process)
+        return process
+
+    def fail_binding(_pid):
+        raise OSError("job assignment denied")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    monkeypatch.setattr(radio, "_windows_job_for_pid", fail_binding)
+    player = radio.Player()
+
+    async def run():
+        with pytest.raises(radio.PlaybackError, match="could not start"):
+            await player.start("", ["https://example.com"], 50)
+        assert spawned[0].returncode == -1
+        assert player.process is None and player.job_handle is None
+
+    asyncio.run(run())
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Job Object lifecycle")
+def test_windows_job_handle_close_terminates_benign_child(radio):
+    async def run():
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-c",
+            "import time; time.sleep(30)",
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        job = radio._windows_job_for_pid(process.pid)
+        radio._close_windows_handle(job)
+        await asyncio.wait_for(process.wait(), timeout=5)
+        assert process.returncode is not None
 
     asyncio.run(run())
 

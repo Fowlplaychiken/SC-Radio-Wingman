@@ -26,6 +26,7 @@ FILES = (
     "main.py",
     "player-windows.json",
     "setup-player.ps1",
+    "dependencies/sc_radio_pulsenet.py",
     *TINYTAG_HASHES,
 )
 

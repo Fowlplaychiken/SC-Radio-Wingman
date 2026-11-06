@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -17,6 +19,7 @@ from typing import NamedTuple
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from sc_radio_pulsenet import PulseNetCatalog
 from sc_radio_tinytag import TinyTag, TinyTagException
 from services.file import get_audio_library_dir
 from skills.skill_base import Skill
@@ -62,6 +65,92 @@ def player_executable(configured: str) -> Path:
 
 class SkillLoopClosed(RuntimeError):
     pass
+
+
+class _IoCounters(ctypes.Structure):
+    _fields_ = [
+        ("read_operation_count", ctypes.c_ulonglong),
+        ("write_operation_count", ctypes.c_ulonglong),
+        ("other_operation_count", ctypes.c_ulonglong),
+        ("read_transfer_count", ctypes.c_ulonglong),
+        ("write_transfer_count", ctypes.c_ulonglong),
+        ("other_transfer_count", ctypes.c_ulonglong),
+    ]
+
+
+class _JobBasicLimitInformation(ctypes.Structure):
+    _fields_ = [
+        ("per_process_user_time_limit", ctypes.c_longlong),
+        ("per_job_user_time_limit", ctypes.c_longlong),
+        ("limit_flags", ctypes.c_ulong),
+        ("minimum_working_set_size", ctypes.c_size_t),
+        ("maximum_working_set_size", ctypes.c_size_t),
+        ("active_process_limit", ctypes.c_ulong),
+        ("affinity", ctypes.c_size_t),
+        ("priority_class", ctypes.c_ulong),
+        ("scheduling_class", ctypes.c_ulong),
+    ]
+
+
+class _JobExtendedLimitInformation(ctypes.Structure):
+    _fields_ = [
+        ("basic_limit_information", _JobBasicLimitInformation),
+        ("io_info", _IoCounters),
+        ("process_memory_limit", ctypes.c_size_t),
+        ("job_memory_limit", ctypes.c_size_t),
+        ("peak_process_memory_used", ctypes.c_size_t),
+        ("peak_job_memory_used", ctypes.c_size_t),
+    ]
+
+
+def _windows_job_for_pid(pid: int):
+    """Bind one child to a kill-on-close Job Object, or raise without leaking handles."""
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.argtypes = (ctypes.c_void_p, ctypes.c_wchar_p)
+    kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+    kernel32.SetInformationJobObject.argtypes = (
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_ulong,
+    )
+    kernel32.SetInformationJobObject.restype = ctypes.c_int
+    kernel32.OpenProcess.argtypes = (ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong)
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.AssignProcessToJobObject.argtypes = (ctypes.c_void_p, ctypes.c_void_p)
+    kernel32.AssignProcessToJobObject.restype = ctypes.c_int
+    kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+    kernel32.CloseHandle.restype = ctypes.c_int
+
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        raise ctypes.WinError(ctypes.get_last_error())
+    process_handle = None
+    try:
+        limits = _JobExtendedLimitInformation()
+        limits.basic_limit_information.limit_flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not kernel32.SetInformationJobObject(
+            job, 9, ctypes.byref(limits), ctypes.sizeof(limits),
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+        process_handle = kernel32.OpenProcess(0x0101, False, pid)  # SET_QUOTA | TERMINATE
+        if not process_handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+        if not kernel32.AssignProcessToJobObject(job, process_handle):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return job
+    except BaseException:
+        kernel32.CloseHandle(job)
+        raise
+    finally:
+        if process_handle:
+            kernel32.CloseHandle(process_handle)
+
+
+def _close_windows_handle(handle):
+    if handle:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+        kernel32.CloseHandle.restype = ctypes.c_int
+        if not kernel32.CloseHandle(handle):
+            raise ctypes.WinError(ctypes.get_last_error())
 
 
 class SkillLoopPortal:
@@ -180,6 +269,7 @@ class SkillLoopPortal:
 class Player:
     def __init__(self):
         self.process = None
+        self.job_handle = None
         self.reader = self.writer = None
         self.socket_dir = None
         self.request_id = 0
@@ -188,7 +278,10 @@ class Player:
     def running(self):
         return self.process is not None and self.process.returncode is None
 
-    async def start(self, executable: str, sources: list[str], volume: int, *, shuffle: bool = False):
+    async def start(
+        self, executable: str, sources: list[str], volume: int, *, shuffle: bool = False,
+        youtube_resolver: str | None = None,
+    ):
         await self.stop()
         path = player_executable(executable)
         if os.name == "nt":
@@ -203,8 +296,14 @@ class Player:
                 str(path),
                 "--no-config",
                 "--load-scripts=no",
-                "--ytdl=no",
+                *((
+                    "--ytdl=yes",
+                    f"--script-opt=ytdl_hook-ytdl_path={youtube_resolver}",
+                    "--ytdl-format=bestaudio/best",
+                    "--ytdl-raw-options=ignore-config=,no-plugin-dirs=,js-runtimes=node,socket-timeout=8",
+                ) if youtube_resolver else ("--ytdl=no",)),
                 "--no-video",
+                "--force-window=no",
                 "--audio-file-auto=no",
                 "--audio-display=no",
                 "--no-terminal",
@@ -221,9 +320,17 @@ class Player:
                 stderr=subprocess.DEVNULL,
                 **kwargs,
             )
-            await asyncio.wait_for(self._wait_for_audio(address), 8)
+            if os.name == "nt":
+                # A short spawn-to-assignment window remains; if binding fails, stop and reap mpv.
+                self.job_handle = _windows_job_for_pid(self.process.pid)
+            await asyncio.wait_for(self._wait_for_audio(address), 25 if youtube_resolver else 8)
         except (OSError, TimeoutError, PlaybackError):
             await self.stop()
+            if youtube_resolver:
+                raise PlaybackError(
+                    "PulseNet audio could not start. The YouTube broadcast may be offline, "
+                    "or yt-dlp may need an update or its JavaScript runtime."
+                ) from None
             raise PlaybackError(
                 "Audio could not start. Check the player, source and output device."
             ) from None
@@ -289,6 +396,9 @@ class Player:
                     pass
             await self.process.wait()
             self.process = None
+        if self.job_handle:
+            _close_windows_handle(self.job_handle)
+            self.job_handle = None
         if self.socket_dir:
             self.socket_dir.cleanup()
             self.socket_dir = None
@@ -408,6 +518,7 @@ class ScRadio(Skill):
         super().__init__(config=config, settings=settings, wingman=wingman)
         self.portal = SkillLoopPortal()
         self.player = Player()
+        self.pulsenet = PulseNetCatalog()
         self.lock = asyncio.Lock()
         self.source = None
         self.track_cache = {}
@@ -495,6 +606,9 @@ class ScRadio(Skill):
         tracks = library_tracks(Path(get_audio_library_dir()), config) if config else []
         return stations_from(self._setting("stations") or ""), tracks
 
+    def _pulsenet_enabled(self):
+        return self._setting("pulsenet_enabled") is True
+
     def _tracks(self, paths):
         previous = self.track_cache
         self.track_cache = {}
@@ -511,7 +625,7 @@ class ScRadio(Skill):
 
     def _volume(self):
         config = self._setting("audio_config")
-        return self.volume if self.volume is not None else round(100 * (config.volume if config else 0.25))
+        return self.volume if self.volume is not None else round(100 * (config.volume if config else 0.5))
 
     async def _unload_on_owner_loop(self):
         async with self.lock:
@@ -547,7 +661,7 @@ class ScRadio(Skill):
 
     async def _execute(self, tool_name, parameters):
         if tool_name == "sc_radio_list":
-            return self._list(parameters.get("kind"), parameters.get("station_offset", 0))
+            return await self._list(parameters.get("kind"), parameters.get("station_offset", 0))
         if tool_name == "sc_radio_play":
             return await self._play(
                 parameters.get("kind"), parameters.get("name"), parameters.get("shuffle", False),
@@ -573,10 +687,16 @@ class ScRadio(Skill):
             return await self._control(parameters.get("action"))
         return "Unknown SC Radio command."
 
-    def _list(self, kind, station_offset=0):
+    async def _list(self, kind, station_offset=0):
         stations, paths = self._sources()
         if type(station_offset) is not int or station_offset < 0:
             return "Choose a nonnegative station offset."
+        if kind in (None, "stations") and self._pulsenet_enabled():
+            configured = {name.casefold() for name in stations}
+            stations.update(
+                (name, url) for name, url in (await self.pulsenet.stations()).items()
+                if name.casefold() not in configured
+            )
         if station_offset and station_offset >= len(stations):
             return "No more stations."
         end = station_offset + 32
@@ -600,9 +720,20 @@ class ScRadio(Skill):
         if shuffle and kind not in ("playlist", "artist", "album", "genre"):
             return "Shuffle is only available for a music collection."
         stations, paths = self._sources()
+        player_options = {"shuffle": shuffle}
         if kind == "station":
             key = name.strip().casefold() if isinstance(name, str) else ""
             matches = [(label, url) for label, url in stations.items() if label.casefold() == key]
+            if not matches and self._pulsenet_enabled():
+                matches = [
+                    (label, url) for label, url in (await self.pulsenet.stations()).items()
+                    if label.casefold() == key
+                ]
+                if matches:
+                    resolver = shutil.which("yt-dlp.exe" if os.name == "nt" else "yt-dlp")
+                    if resolver is None:
+                        return "Install yt-dlp and its YouTube JavaScript runtime to tune PulseNet. See the SC Radio README."
+                    player_options["youtube_resolver"] = str(Path(resolver).resolve())
             if not matches:
                 return "Source not found. Use the SC Radio list to choose a configured name."
             label, source = matches[0]
@@ -636,7 +767,7 @@ class ScRadio(Skill):
             label = f"Shuffled {label}"
         self.source = None
         await self.player.start(
-            self._setting("player_path") or "", sources, min(100, max(0, self._volume())), shuffle=shuffle,
+            self._setting("player_path") or "", sources, min(100, max(0, self._volume())), **player_options,
         )
         self.source = (kind, label)
         return f"Playing {label}."

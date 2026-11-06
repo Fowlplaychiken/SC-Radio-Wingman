@@ -1,7 +1,7 @@
 module: skills.sc_radio.main
 name: ScRadio
 api_version: 3
-version: 0.2.1
+version: 0.2.2
 display_name: SC Radio
 author: Star Citizen Computer contributors
 description:
@@ -28,6 +28,12 @@ custom_properties:
       The Base = https://listen.thebase.sc
       HCN Radio = https://hcnradio.ddns.me/stream/1/
     required: true
+  - id: pulsenet_enabled
+    name: PulseNet (YouTube)
+    hint: Enable PulseNet stations using your installed yt-dlp and its YouTube JavaScript runtime.
+    property_type: boolean
+    value: false
+    required: false
   - id: audio_config
     name: Personal playlist
     hint: Select MP3 or WAV files from the Wingman Audio Library.
@@ -38,5 +44,5 @@ custom_properties:
         value: true
     value:
       files: []
-      volume: 0.25
+      volume: 0.5
       wait: false

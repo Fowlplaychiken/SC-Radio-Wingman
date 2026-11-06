@@ -6,9 +6,9 @@
 
 Play community radio and music from your own library through Wingman AI. Tune in to **The Base** or **HCN Radio**, ask for an album, or shuffle your playlist. Audio plays directly through mpv, with Wingman’s standard custom-skill interface.
 
-**v0.2.1** · **Wingman custom skill API v3** · **Tested on Windows** · [GPL-3.0](LICENSE)
+**v0.2.2** · **Wingman custom skill API v3** · **Tested on Windows** · [GPL-3.0](LICENSE)
 
-**[Download the install ZIP](https://raw.githubusercontent.com/Fowlplaychiken/SC-Radio-Wingman/NewRepo/downloads/sc_radio-0.2.1.zip)** · [Quick start](#install) · [What to say](#use) · [Add stations or music](#configure-stations-and-songs)
+**[Download the install ZIP](https://raw.githubusercontent.com/Fowlplaychiken/SC-Radio-Wingman/NewRepo/downloads/sc_radio-0.2.2.zip)** · [Quick start](#install) · [What to say](#use) · [Add stations or music](#configure-stations-and-songs)
 
 | Live radio | Your music | Playback controls |
 | --- | --- | --- |
@@ -16,7 +16,7 @@ Play community radio and music from your own library through Wingman AI. Tune in
 
 ## Install
 
-1. [Download SC Radio](https://raw.githubusercontent.com/Fowlplaychiken/SC-Radio-Wingman/NewRepo/downloads/sc_radio-0.2.1.zip) and extract it. On Windows, paste `%APPDATA%\ShipBit\WingmanAI\custom_skills` into File Explorer’s address bar and copy the extracted `sc_radio` folder there. On other platforms, use your Wingman installation’s custom skills folder.
+1. [Download SC Radio](https://raw.githubusercontent.com/Fowlplaychiken/SC-Radio-Wingman/NewRepo/downloads/sc_radio-0.2.2.zip) and extract it. On Windows, paste `%APPDATA%\ShipBit\WingmanAI\custom_skills` into File Explorer’s address bar and copy the extracted `sc_radio` folder there. On other platforms, use your Wingman installation’s custom skills folder.
 2. On Windows x64, open `sc_radio`, right-click `setup-player.ps1`, and choose **Run with PowerShell**. On Windows 11, the command may be under **Show more options**. Setup reuses mpv from a recognized location or downloads and checks the official release if needed. You can skip this step if mpv is already installed in a recognized location. Setup needs no administrator privileges.
 3. Restart Wingman and add **SC Radio** to your profile. Leave **mpv executable** blank for automatic detection. For a custom install location or another platform without a detected player, install mpv from the [official installation page](https://mpv.io/installation/) and enter its full executable path. Windows **Copy as path** works with or without quotes.
 4. Ask **“Tune in to The Base”** or **“Play HCN Radio.”** Leave **Station list** at its defaults unless you want to change it.
@@ -26,9 +26,26 @@ The Windows helper downloads mpv directly from its publisher on demand and check
 For your own music, add MP3 or WAV files to Wingman’s **Audio Library**, select them under **SC Radio → Personal playlist**, then ask **“Shuffle my music.”** You can leave the playlist empty if you only use radio.
 
 SC Radio uses the operating system's default audio output. Its initial music
-volume is 25%; change it by voice or with the volume command. The player is
-started without an mpv configuration file, scripts, video, or YouTube-DL
-support. Select only an `mpv` executable you trust.
+volume is 50%; change it by voice or with the volume command. The player
+runs with video and user mpv scripts disabled. Select only an `mpv` executable
+you trust.
+
+### PulseNet (optional)
+
+1. Install [yt-dlp](https://github.com/yt-dlp/yt-dlp#installation) and a
+   [supported version of Deno or Node.js](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
+   Put yt-dlp on PATH and restart Wingman so it sees the updated PATH.
+2. Turn on **PulseNet (YouTube)** in the SC Radio skill settings.
+3. Ask **“Tune in to PulseNet.”** SC Radio plays the broadcast in its existing
+   audio player without opening a browser or video window.
+
+SC Radio checks [PulseNet's published station definitions](https://github.com/Diftic/PulseNet-Player/blob/master/src/Renderer/stations.js)
+when listing stations or tuning a PulseNet station. It caches the result and
+adds separate playlists by name as the publisher assigns them. The live
+station and your saved stations remain available if the list cannot refresh.
+The live source depends on YouTube availability. Use only where permitted by
+the [YouTube terms](https://www.youtube.com/t/terms). The yt-dlp integration is
+optional and uses your own installation.
 
 ## Use
 
@@ -139,7 +156,7 @@ the skill. To run the tests and build an install ZIP from a standalone checkout:
 ```shell
 python -m pip install pytest PyYAML
 python -m pytest -q
-python scripts/package.py sc_radio-0.2.1.zip
+python scripts/package.py sc_radio-0.2.2.zip
 ```
 
 The test suite uses inert Wingman and player fixtures. Live station playback
