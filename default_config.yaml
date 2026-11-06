@@ -1,7 +1,7 @@
 module: skills.sc_radio.main
 name: ScRadio
 api_version: 3
-version: 0.2.2
+version: 0.2.3
 display_name: SC Radio
 author: Star Citizen Computer contributors
 description:

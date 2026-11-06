@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import json
 import os
 import subprocess
 import struct
@@ -81,13 +82,14 @@ def test_station_config_and_validation(radio):
 def test_pulsenet_is_opt_in_and_uses_existing_player(radio, monkeypatch, tmp_path):
     live = "https://www.youtube.com/channel/UCIMaIJsfJEMi5yJIe5nAb0g/live"
     playlist = "https://www.youtube.com/playlist?list=PLExample"
+    next_playlist = "https://www.youtube.com/playlist?list=PLOtherExample"
     config = {"stations": "The Base = https://listen.thebase.sc", "audio_config": None}
     skill = radio.ScRadio(config, None, None)
     starts = []
     resolver = tmp_path / "yt-dlp.exe"
 
     async def catalogue():
-        return {"PulseNet": live, "CrossWind": playlist}
+        return {"PulseNet": live, "CrossWind": playlist, "NovaBeat": next_playlist}
 
     async def start(_executable, sources, volume, **options):
         starts.append((sources, volume, options))
@@ -99,16 +101,24 @@ def test_pulsenet_is_opt_in_and_uses_existing_player(radio, monkeypatch, tmp_pat
     async def run():
         assert "PulseNet" not in await skill._list("stations")
         config["pulsenet_enabled"] = True
-        assert await skill._list("stations") == "Stations: The Base, PulseNet, CrossWind."
+        assert await skill._list("stations") == "Stations: The Base, PulseNet, CrossWind, NovaBeat."
         assert "Install yt-dlp" in await skill._play("station", "PulseNet")
         assert not starts
         monkeypatch.setattr(radio.shutil, "which", lambda _name: str(resolver))
         assert await skill._play("station", "pulsenet") == "Playing PulseNet."
         assert await skill._play("station", "CrossWind") == "Playing CrossWind."
+        assert skill.source == ("pulsenet_playlist", "CrossWind")
+        assert "choose available" in await skill._play(
+            "station_mix", station_names=["PulseNet", "Crosswind"],
+        )
+        assert await skill._play("station_mix", station_names=["NovaBeat", "crosswind"]) == (
+            "Playing PulseNet mix: NovaBeat, CrossWind."
+        )
         assert await skill._play("station", "The Base") == "Playing The Base."
         assert starts == [
             ([live], 50, {"shuffle": False, "youtube_resolver": str(resolver)}),
             ([playlist], 50, {"shuffle": False, "youtube_resolver": str(resolver)}),
+            ([next_playlist, playlist], 50, {"shuffle": False, "youtube_resolver": str(resolver)}),
             (["https://listen.thebase.sc"], 50, {"shuffle": False}),
         ]
 
@@ -140,6 +150,7 @@ def test_pulsenet_catalog_refresh_and_outage(radio, monkeypatch):
         return result
 
     monkeypatch.setattr(catalog, "_fetch_catalog", fetch)
+    monkeypatch.setattr(catalog, "_fetch_channel_catalog", lambda: {})
     monkeypatch.setattr(catalog, "_REFRESH_SECONDS", 0)
     monkeypatch.setattr(catalog, "_RETRY_SECONDS", 0)
 
@@ -150,6 +161,37 @@ def test_pulsenet_catalog_refresh_and_outage(radio, monkeypatch):
         assert await stations.stations() == live
 
     asyncio.run(run())
+
+
+def test_pulsenet_discovers_a_new_official_playlist(radio):
+    import sc_radio_pulsenet as catalog
+
+    def card(playlist, title):
+        return {"lockupViewModel": {
+            "contentType": "LOCKUP_CONTENT_TYPE_PLAYLIST",
+            "contentId": playlist,
+            "metadata": {"lockupMetadataViewModel": {"title": {"content": title}}},
+        }}
+
+    data = {
+        "metadata": {"channelMetadataRenderer": {"externalId": catalog._CHANNEL_ID}},
+        "contents": {"twoColumnBrowseResultsRenderer": {"tabs": [{"tabRenderer": {
+            "selected": True,
+            "title": "Playlists",
+            "content": {"items": [
+                card("PLBreaker123", "Breaker Station"),
+                card("PLCrosswind123", "Crosswind - Heritage"),
+                card("PLNotStation123", "Behind the scenes"),
+            ]},
+        }}]}},
+    }
+    assert catalog.parse_channel_catalog("var ytInitialData = " + json.dumps(data)) == {
+        "Breaker Station": "https://www.youtube.com/playlist?list=PLBreaker123",
+        "Crosswind": "https://www.youtube.com/playlist?list=PLCrosswind123",
+    }
+    data["metadata"]["channelMetadataRenderer"]["externalId"] = "different-channel"
+    with pytest.raises(ValueError, match="channel identity"):
+        catalog.parse_channel_catalog("var ytInitialData = " + json.dumps(data))
 
 
 def test_large_station_catalogue_lists_in_pages(radio):

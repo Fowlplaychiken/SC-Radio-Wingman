@@ -541,16 +541,22 @@ class ScRadio(Skill):
             ),
             tool_definition(
                 "sc_radio_play",
-                "Play a broadcast station, song title, music by an artist or genre, an album, or the personal "
-                "playlist. Use shuffle=true to play a collection at random. For a song or album by "
+                "Play a broadcast station, combine PulseNet genre stations, or play personal music. "
+                "Use station_mix with an ordered list of PulseNet station names. "
+                "Use shuffle=true to play a personal music collection at random. For a song or album by "
                 "a specific artist, pass both names.",
                 {
                     "kind": {
-                        "type": "string", "enum": ["station", "song", "artist", "album", "genre", "playlist"],
+                        "type": "string",
+                        "enum": ["station", "station_mix", "song", "artist", "album", "genre", "playlist"],
                     },
                     "name": {
                         "type": "string",
                         "description": "Station, song title, artist, album, or genre name, according to kind.",
+                    },
+                    "stations": {
+                        "type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 24,
+                        "description": "PulseNet genre station names in play order, for station_mix.",
                     },
                     "artist": {"type": "string", "description": "Artist to qualify a song or album."},
                     "album": {"type": "string", "description": "Album to qualify a song or artist."},
@@ -665,7 +671,7 @@ class ScRadio(Skill):
         if tool_name == "sc_radio_play":
             return await self._play(
                 parameters.get("kind"), parameters.get("name"), parameters.get("shuffle", False),
-                parameters.get("artist"), parameters.get("album"),
+                parameters.get("artist"), parameters.get("album"), parameters.get("stations"),
             )
         if tool_name == "sc_radio_queue":
             return await self._queue(
@@ -714,13 +720,14 @@ class ScRadio(Skill):
         songs = f"Selected songs: {', '.join(track.description() for track in tracks) or 'none'}."
         return songs if kind == "songs" else f"{station_list} {songs}"
 
-    async def _play(self, kind=None, name=None, shuffle=False, artist=None, album=None):
+    async def _play(self, kind=None, name=None, shuffle=False, artist=None, album=None, station_names=None):
         if type(shuffle) is not bool:
             return "Shuffle must be true or false."
         if shuffle and kind not in ("playlist", "artist", "album", "genre"):
             return "Shuffle is only available for a music collection."
         stations, paths = self._sources()
         player_options = {"shuffle": shuffle}
+        use_youtube = False
         if kind == "station":
             key = name.strip().casefold() if isinstance(name, str) else ""
             matches = [(label, url) for label, url in stations.items() if label.casefold() == key]
@@ -729,15 +736,31 @@ class ScRadio(Skill):
                     (label, url) for label, url in (await self.pulsenet.stations()).items()
                     if label.casefold() == key
                 ]
-                if matches:
-                    resolver = shutil.which("yt-dlp.exe" if os.name == "nt" else "yt-dlp")
-                    if resolver is None:
-                        return "Install yt-dlp and its YouTube JavaScript runtime to tune PulseNet. See the SC Radio README."
-                    player_options["youtube_resolver"] = str(Path(resolver).resolve())
+                use_youtube = bool(matches)
             if not matches:
                 return "Source not found. Use the SC Radio list to choose a configured name."
             label, source = matches[0]
             sources = [source]
+            if use_youtube and source.startswith("https://www.youtube.com/playlist?"):
+                kind = "pulsenet_playlist"
+        elif kind == "station_mix":
+            if not self._pulsenet_enabled():
+                return "Enable PulseNet in SC Radio settings to combine its genre stations."
+            if not isinstance(station_names, list) or not 2 <= len(station_names) <= 24:
+                return "Give two or more PulseNet genre station names in play order."
+            keys = [music_key(item) for item in station_names]
+            if not all(keys) or len(set(keys)) != len(keys):
+                return "Give distinct PulseNet genre station names."
+            available = {
+                music_key(label): (label, url)
+                for label, url in (await self.pulsenet.stations()).items()
+                if url.startswith("https://www.youtube.com/playlist?")
+            }
+            if any(key not in available for key in keys):
+                return "Use the SC Radio station list to choose available PulseNet genre stations."
+            label = "PulseNet mix: " + ", ".join(available[key][0] for key in keys)
+            sources = [available[key][1] for key in keys]
+            use_youtube = True
         elif kind == "playlist":
             label = "Shuffled personal playlist" if shuffle else "Personal playlist"
             sources = [str(track.path) for track in self._tracks(paths)]
@@ -763,6 +786,11 @@ class ScRadio(Skill):
             return "Choose a station, song, artist, album, genre or your personal playlist."
         if not sources:
             return "No songs are selected. Choose tracks from Wingman's Audio Library."
+        if use_youtube:
+            resolver = shutil.which("yt-dlp.exe" if os.name == "nt" else "yt-dlp")
+            if resolver is None:
+                return "Install yt-dlp and its YouTube JavaScript runtime to tune PulseNet. See the SC Radio README."
+            player_options["youtube_resolver"] = str(Path(resolver).resolve())
         if shuffle and kind != "playlist":
             label = f"Shuffled {label}"
         self.source = None
@@ -799,7 +827,7 @@ class ScRadio(Skill):
         return cached[1].description() if cached else path.name
 
     async def _queue(self, action, name, artist, album):
-        if not self.player.running or not self.source or self.source[0] == "station":
+        if not self.player.running or not self.source or self.source[0] in ("station", "station_mix", "pulsenet_playlist"):
             return "Start playing personal music to use the queue."
         if action == "show":
             entries = await self.player.command("get_property", "playlist")
@@ -829,11 +857,16 @@ class ScRadio(Skill):
         if not self.player.running or not self.source:
             return "SC Radio is idle."
         kind, label = self.source
-        collection = kind in ("playlist", "album", "artist", "genre")
+        pulse_playlist = kind in ("station_mix", "pulsenet_playlist")
+        collection = pulse_playlist or kind in ("playlist", "album", "artist", "genre")
         if action == "status":
             paused = await self.player.command("get_property", "pause")
             state = "Paused" if paused else "Playing"
-            if collection:
+            if pulse_playlist:
+                current = tag_text(await self.player.command("get_property", "media-title"))
+                if current and "://" not in current:
+                    return f"{state}: {label}, {current}."
+            elif collection:
                 current = await self.player.command("get_property", "path")
                 if current:
                     return f"{state}: {label}, {self._playing_track_label(current)}."
