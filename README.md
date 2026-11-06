@@ -16,12 +16,18 @@ Play community radio and music from your own library through Wingman AI. Tune in
 
 ## Install
 
-1. [Download SC Radio](https://raw.githubusercontent.com/Fowlplaychiken/SC-Radio-Wingman/NewRepo/downloads/sc_radio-0.2.4.zip) and extract it. On Windows, paste `%APPDATA%\ShipBit\WingmanAI\custom_skills` into File Explorer’s address bar and copy the extracted `sc_radio` folder there. On other platforms, use your Wingman installation’s custom skills folder.
+1. [Download SC Radio](https://raw.githubusercontent.com/Fowlplaychiken/SC-Radio-Wingman/NewRepo/downloads/sc_radio-0.2.4.zip) and extract it. On Windows, paste `%APPDATA%\ShipBit\WingmanAI\custom_skills` into File Explorer’s address bar and copy the extracted `sc_radio` folder there. The final path should end in `custom_skills\sc_radio\default_config.yaml`. On other platforms, use your Wingman installation’s custom skills folder.
 2. On Windows x64, open `sc_radio`, right-click `setup-player.ps1`, and choose **Run with PowerShell**. On Windows 11, the command may be under **Show more options**. Setup reuses mpv from a recognized location or downloads and checks the official release if needed. You can skip this step if mpv is already installed in a recognized location. Setup needs no administrator privileges.
 3. Restart Wingman and add **SC Radio** to your profile. Leave **mpv executable** blank for automatic detection. For a custom install location or another platform without a detected player, install mpv from the [official installation page](https://mpv.io/installation/) and enter its full executable path. Windows **Copy as path** works with or without quotes.
 4. Ask **“Tune in to The Base”** or **“Play HCN Radio.”** Leave **Station list** at its defaults unless you want to change it.
 
 The Windows helper downloads mpv directly from its publisher on demand and checks the archive and player against pinned SHA-256 hashes. Wingman only launches the player for playback. See the [player provenance](NOTICE.md#mpv-player).
+
+### Upgrade an existing installation
+
+1. Stop SC Radio playback and quit Wingman.
+2. Move your existing `sc_radio` folder outside Wingman’s custom skills folder as a backup. Install the new `sc_radio` folder in its place using step 1 above.
+3. Open Wingman, check **SC Radio** is enabled in the same profile, and ask **“List my radio stations.”** Your station list and selected songs are saved in the Wingman profile. The player setup only needs to run again if Wingman can no longer find mpv.
 
 For your own music, add MP3 or WAV files to Wingman’s **Audio Library**, select them under **SC Radio → Personal playlist**, then ask **“Shuffle my music.”** You can leave the playlist empty if you only use radio.
 
@@ -50,29 +56,6 @@ and your saved stations remain available if the list cannot refresh.
 The live source depends on YouTube availability. Use only where permitted by
 the [YouTube terms](https://www.youtube.com/t/terms). The yt-dlp integration is
 optional and uses your own installation.
-
-### Add public sources
-
-The **Station list** also accepts explicit public YouTube links (videos,
-playlists, channel or `@handle` live pages), Twitch live channels and VODs,
-and RSS podcast feeds. Give each saved link a name, then ask SC Radio to play
-that name. For example:
-
-```text
-My podcast = rss:https://podcast.example.org/feed.xml
-Space stream = https://www.youtube.com/@space-radio/live
-Live channel = https://www.twitch.tv/examplechannel
-Replay = https://www.twitch.tv/videos/123456789
-```
-
-RSS entries are checked when played, and SC Radio selects the newest item with
-a valid public HTTPS audio enclosure. Feeds and enclosures are size-bounded;
-redirects and enclosure URLs must remain on public HTTPS hosts. RSS pages,
-embedded players, and non-audio enclosures are not scraped. YouTube and Twitch
-sources need the same optional yt-dlp and JavaScript runtime described above;
-PulseNet can stay disabled. No account login, paywall, DRM, or private sources
-are supported. Use links only where permitted by the source's terms. Requests
-select saved station names; the voice tools do not accept arbitrary URLs.
 
 ## Use
 
@@ -128,16 +111,18 @@ My station = https://radio.example.org/live.mp3
 My podcast = rss:https://podcast.example.org/feed.xml
 My video station = https://www.youtube.com/@space-radio/live
 My Twitch stream = https://www.twitch.tv/example
+My Twitch replay = https://www.twitch.tv/videos/123456789
 ```
 
-Use a broadcaster's published direct stream URL, a public RSS feed with audio
-enclosures, or a supported public YouTube/Twitch page. Give each source a
-unique name. Ask Wingman for more stations to page through long lists.
-The preset feeds were checked against
-broadcaster sources; see [`NOTICE.md`](NOTICE.md) for provenance and
-verification details. External streams can change, become unavailable, or use
-a codec your local player does not support. Live streams may resume at the
-current broadcast position after pausing or reconnecting.
+Save the list, then ask **“Play My podcast”** or **“Tune in to My Twitch stream.”**
+Ask for more stations to page through long lists.
+
+- **Direct radio.** Use the broadcaster’s public HTTPS audio stream. See the [preset feed sources](NOTICE.md).
+- **Podcasts.** Use the publisher’s public RSS feed with the `rss:` prefix. When you tune in, SC Radio reads up to 1 MB of feed data and checks recent items for a public HTTPS audio enclosure. It prefers the latest publication date when the feed provides dates.
+- **YouTube and Twitch.** Save a public YouTube video, playlist or live page, or a public Twitch channel or VOD. Set up yt-dlp and its JavaScript runtime as described under [PulseNet](#pulsenet-optional). The PulseNet switch controls only the PulseNet presets.
+
+Use links where permitted by the source’s terms. Live streams may resume at
+the current broadcast position after pausing or reconnecting.
 
 For personal music, add files to Wingman's Audio Library and select them in
 the **Personal playlist** setting. SC Radio uses only selected MP3 and WAV
@@ -148,7 +133,7 @@ files that remain inside that library. It plays audio files you supply. The rele
 - **mpv cannot be found:** On Windows x64, run `setup-player.ps1` and leave the player setting blank. If your system blocks scripts, install mpv separately and select the full executable path.
 - **The downloaded player failed verification:** Remove `%LOCALAPPDATA%\SC Radio\mpv-0.42.0-x64` and rerun `setup-player.ps1`.
 - **Audio does not start:** Confirm mpv opens on your system, the selected operating-system audio output works, and the stream or file is reachable. Try another station or a selected local song to narrow down whether the issue is the feed or player.
-- **A station fails to open:** For a radio station use its direct HTTPS audio URL. For a podcast use its public audio RSS feed with the rss: prefix. For YouTube and Twitch verify yt-dlp is available and the source is public and online.
+- **A station fails to open.** Check its saved URL and source type against [Configure stations and songs](#configure-stations-and-songs). For YouTube and Twitch, also verify that yt-dlp is on PATH and the source is public and online.
 - **A song is missing:** Confirm it is in Wingman's Audio Library, selected in SC Radio's **Personal playlist** setting, and is an MP3 or WAV file. Then ask Wingman to list the available sources.
 - **Pause, status, or volume does not respond:** Ask SC Radio to stop, then start the source again. If Wingman was forcibly terminated, check whether its mpv process is still playing before starting another SC Radio session.
 - **Wingman does not show the skill:** Confirm the extracted folder is named `sc_radio`, is inside the custom skills directory, and restart Wingman. Check the Wingman custom skill API version and skill-load logs if the issue remains.
@@ -191,3 +176,7 @@ python scripts/package.py sc_radio-0.2.4.zip
 
 The test suite uses inert Wingman and player fixtures. Live station playback
 also requires the broadcaster and your audio output to be available.
+
+For each release, update the install and upgrade steps, supported sources and
+examples here alongside any behavior change. Match the README version and ZIP
+links to `default_config.yaml`, then verify the published ZIP and checksum.
