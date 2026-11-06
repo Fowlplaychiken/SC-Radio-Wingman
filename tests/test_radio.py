@@ -64,6 +64,17 @@ def test_station_config_and_validation(radio):
     assert radio.stations_from("Friend = https://example.com/listen?codec=mp3") == {
         "Friend": "https://example.com/listen?codec=mp3"
     }
+    assert radio.stations_from(
+        "Podcast = rss:https://feeds.example.org/show.xml\n"
+        "Video = https://youtu.be/example\nTwitch = https://www.twitch.tv/example"
+    ) == {
+        "Podcast": "rss:https://feeds.example.org/show.xml",
+        "Video": "resolver:https://youtu.be/example",
+        "Twitch": "resolver:https://www.twitch.tv/example",
+    }
+    assert radio.stations_from("Other = https://notyoutube.com/@person/live") == {
+        "Other": "https://notyoutube.com/@person/live",
+    }
     defaulted = radio.ScRadio({"audio_config": None}, None, None)
     assert defaulted._volume() == 50
     saved_muted = radio.ScRadio({"audio_config": SimpleNamespace(volume=0)}, None, None)
@@ -74,6 +85,7 @@ def test_station_config_and_validation(radio):
         "Bad = https://user:pass@example.com",
         "Bad = https://example.com:abcd",
         "A = https://example.com\na = https://example.net",
+        "Bad RSS = rss:http://feeds.example.org/feed.xml",
     ):
         with pytest.raises(ValueError):
             radio.stations_from(invalid)
@@ -107,7 +119,7 @@ def test_pulsenet_is_opt_in_and_uses_existing_player(radio, monkeypatch, tmp_pat
         monkeypatch.setattr(radio.shutil, "which", lambda _name: str(resolver))
         assert await skill._play("station", "pulsenet") == "Playing PulseNet."
         assert await skill._play("station", "CrossWind") == "Playing CrossWind."
-        assert skill.source == ("pulsenet_playlist", "CrossWind")
+        assert skill.source == ("online_playlist", "CrossWind")
         assert "choose available" in await skill._play(
             "station_mix", station_names=["PulseNet", "Crosswind"],
         )
@@ -123,6 +135,59 @@ def test_pulsenet_is_opt_in_and_uses_existing_player(radio, monkeypatch, tmp_pat
         ]
 
     asyncio.run(run())
+
+
+def test_user_rss_and_video_sources_dispatch_without_pulsenet(radio, monkeypatch, tmp_path):
+    config = {"stations": (
+        "Podcast = rss:https://feeds.example.org/feed.xml\n"
+        "Video = https://www.youtube.com/watch?v=example"
+    ), "audio_config": None, "pulsenet_enabled": False}
+    skill = radio.ScRadio(config, None, None)
+    starts = []
+    resolver = tmp_path / "yt-dlp.exe"
+
+    def enclosure(url):
+        assert url == "https://feeds.example.org/feed.xml"
+        return "https://cdn.example.org/newest.mp3"
+
+    async def start(_executable, sources, volume, **options):
+        starts.append((sources, options))
+
+    monkeypatch.setattr(radio, "latest_audio_enclosure", enclosure)
+    monkeypatch.setattr(skill.player, "start", start)
+    monkeypatch.setattr(radio.shutil, "which", lambda _name: str(resolver))
+
+    async def run():
+        assert await skill._play("station", "Podcast") == "Playing Podcast."
+        assert await skill._play("station", "Video") == "Playing Video."
+        assert starts == [
+            (["https://cdn.example.org/newest.mp3"], {"shuffle": False}),
+            (["https://www.youtube.com/watch?v=example"], {
+                "shuffle": False, "youtube_resolver": str(resolver),
+            }),
+        ]
+
+    asyncio.run(run())
+
+
+def test_rss_parser_selects_latest_audio_enclosure_and_rejects_unsafe(radio, monkeypatch):
+    import sc_radio_sources as sources
+
+    feed = b"""<rss><channel>
+      <item><pubDate>Thu, 05 Nov 2026 10:00:00 GMT</pubDate>
+        <enclosure url="https://cdn.example.org/old.mp3" type="audio/mpeg"/></item>
+      <item><pubDate>Thu, 05 Nov 2026 12:00:00 GMT</pubDate>
+        <enclosure url="https://127.0.0.1/private.mp3" type="audio/mpeg"/>
+        <enclosure url="https://cdn.example.org/new.mp3" type="audio/mpeg"/></item>
+    </channel></rss>"""
+    monkeypatch.setattr(sources, "_read_feed", lambda _url: feed)
+    monkeypatch.setattr(sources, "_public_https_url", lambda url: "127.0.0.1" not in url)
+    assert sources.latest_audio_enclosure("https://feeds.example.org/show.xml") == (
+        "https://cdn.example.org/new.mp3"
+    )
+    monkeypatch.setattr(sources, "_read_feed", lambda _url: b"<rss><channel/></rss>")
+    with pytest.raises(ValueError, match="No valid"):
+        sources.latest_audio_enclosure("https://feeds.example.org/show.xml")
 
 
 def test_pulsenet_catalog_refresh_and_outage(radio, monkeypatch):
@@ -460,7 +525,7 @@ def test_player_only_runs_selected_executable_and_kills_failed_start(radio, tmp_
         shuffled_args = spawned[1][0]
         assert "--shuffle" in shuffled_args[:-3]
         assert shuffled_args[-3:] == ("--", "one.wav", "two.wav")
-        with pytest.raises(radio.PlaybackError, match="PulseNet audio could not start"):
+        with pytest.raises(radio.PlaybackError, match="Online audio could not start"):
             await player.start(str(executable), ["https://www.youtube.com/"], 25, youtube_resolver="yt-dlp")
         youtube_args, _, youtube_process = spawned[2]
         assert "--ytdl=yes" in youtube_args and "--ytdl=no" not in youtube_args

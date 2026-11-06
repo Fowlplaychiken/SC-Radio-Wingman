@@ -1,7 +1,7 @@
 module: skills.sc_radio.main
 name: ScRadio
 api_version: 3
-version: 0.2.3
+version: 0.2.4
 display_name: SC Radio
 author: Star Citizen Computer contributors
 description:
@@ -22,7 +22,7 @@ custom_properties:
     required: false
   - id: stations
     name: Station list
-    hint: One Name = https://direct-audio-feed entry per line. Edit this list to add or remove a preset.
+    hint: One Name = URL per line. Direct HTTPS audio, rss:HTTPS RSS feed, or public YouTube/Twitch link. Edit this list to add or remove a source.
     property_type: textarea
     value: |
       The Base = https://listen.thebase.sc

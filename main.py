@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from sc_radio_pulsenet import PulseNetCatalog
+from sc_radio_sources import TIMEOUT_SECONDS, latest_audio_enclosure, validate_feed_url
 from sc_radio_tinytag import TinyTag, TinyTagException
 from services.file import get_audio_library_dir
 from skills.skill_base import Skill
@@ -328,7 +329,7 @@ class Player:
             await self.stop()
             if youtube_resolver:
                 raise PlaybackError(
-                    "PulseNet audio could not start. The YouTube broadcast may be offline, "
+                    "Online audio could not start. The source may be offline, "
                     "or yt-dlp may need an update or its JavaScript runtime."
                 ) from None
             raise PlaybackError(
@@ -411,6 +412,9 @@ def stations_from(setting: str) -> dict[str, str]:
         if not line.strip():
             continue
         name, separator, url = (part.strip() for part in line.partition("="))
+        source_type = "stream"
+        if url.lower().startswith("rss:"):
+            source_type, url = "rss", url[4:].strip()
         parsed = urlsplit(url)
         if (
             not separator
@@ -430,8 +434,19 @@ def stations_from(setting: str) -> dict[str, str]:
             raise ValueError("Use uniquely named stations with direct HTTPS audio feeds.")
         # Force URL port validation before handing a source to the player.
         _ = parsed.port
+        if source_type == "rss":
+            if not validate_feed_url(url):
+                raise ValueError("RSS sources must use HTTPS on a public host.")
+            url = "rss:" + url
+        elif (parsed.hostname or "").lower().rstrip(".") in {
+            "youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be",
+            "twitch.tv", "www.twitch.tv", "m.twitch.tv", "clips.twitch.tv",
+        }:
+            if parsed.port not in (None, 443):
+                raise ValueError("YouTube and Twitch sources must use the standard HTTPS port.")
+            source_type = "resolver"
         names.add(name.casefold())
-        stations[name] = url
+        stations[name] = ("resolver:" if source_type == "resolver" else "") + url
     return stations
 
 
@@ -740,9 +755,21 @@ class ScRadio(Skill):
             if not matches:
                 return "Source not found. Use the SC Radio list to choose a configured name."
             label, source = matches[0]
+            if source.startswith("rss:"):
+                try:
+                    source = await asyncio.wait_for(
+                        asyncio.to_thread(latest_audio_enclosure, source[4:]), timeout=TIMEOUT_SECONDS,
+                    )
+                except TimeoutError:
+                    return "The podcast feed timed out. Try again later."
+                except ValueError as exc:
+                    return f"{exc}"
+            elif source.startswith("resolver:"):
+                source = source[len("resolver:"):]
+                use_youtube = True
             sources = [source]
-            if use_youtube and source.startswith("https://www.youtube.com/playlist?"):
-                kind = "pulsenet_playlist"
+            if use_youtube and urlsplit(source).path == "/playlist":
+                kind = "online_playlist"
         elif kind == "station_mix":
             if not self._pulsenet_enabled():
                 return "Enable PulseNet in SC Radio settings to combine its genre stations."
@@ -789,7 +816,7 @@ class ScRadio(Skill):
         if use_youtube:
             resolver = shutil.which("yt-dlp.exe" if os.name == "nt" else "yt-dlp")
             if resolver is None:
-                return "Install yt-dlp and its YouTube JavaScript runtime to tune PulseNet. See the SC Radio README."
+                return "Install yt-dlp and its JavaScript runtime to play this public YouTube or Twitch source. See the SC Radio README."
             player_options["youtube_resolver"] = str(Path(resolver).resolve())
         if shuffle and kind != "playlist":
             label = f"Shuffled {label}"
@@ -827,7 +854,7 @@ class ScRadio(Skill):
         return cached[1].description() if cached else path.name
 
     async def _queue(self, action, name, artist, album):
-        if not self.player.running or not self.source or self.source[0] in ("station", "station_mix", "pulsenet_playlist"):
+        if not self.player.running or not self.source or self.source[0] in ("station", "station_mix", "online_playlist"):
             return "Start playing personal music to use the queue."
         if action == "show":
             entries = await self.player.command("get_property", "playlist")
@@ -857,12 +884,12 @@ class ScRadio(Skill):
         if not self.player.running or not self.source:
             return "SC Radio is idle."
         kind, label = self.source
-        pulse_playlist = kind in ("station_mix", "pulsenet_playlist")
-        collection = pulse_playlist or kind in ("playlist", "album", "artist", "genre")
+        online_playlist = kind in ("station_mix", "online_playlist")
+        collection = online_playlist or kind in ("playlist", "album", "artist", "genre")
         if action == "status":
             paused = await self.player.command("get_property", "pause")
             state = "Paused" if paused else "Playing"
-            if pulse_playlist:
+            if online_playlist:
                 current = tag_text(await self.player.command("get_property", "media-title"))
                 if current and "://" not in current:
                     return f"{state}: {label}, {current}."
