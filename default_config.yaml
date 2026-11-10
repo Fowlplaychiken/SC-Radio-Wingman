@@ -1,7 +1,7 @@
 module: skills.sc_radio.main
 name: ScRadio
 api_version: 3
-version: 0.2.4
+version: 0.2.5
 display_name: SC Radio
 author: Star Citizen Computer contributors
 description:
@@ -27,6 +27,7 @@ custom_properties:
     value: |
       The Base = https://listen.thebase.sc
       HCN Radio = https://hcnradio.ddns.me/stream/1/
+      Star Citizen Radio = https://streaming.live365.com/a31263
     required: true
   - id: pulsenet_enabled
     name: PulseNet (YouTube)

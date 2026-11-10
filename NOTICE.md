@@ -17,6 +17,9 @@ own primary sources:
   constructs `https://hcnradio.ddns.me/stream/${sid}/`; the station table in a
   second official bundle maps Radio One to ID `1`. A read-only HTTPS HEAD
   request returned status 200 and `Content-Type: audio/aacp`.
+- Star Citizen Radio's [official Live365 station page](https://live365.com/station/Star-Citizen-Radio-a31263)
+  embeds `https://streaming.live365.com/a31263`, the direct audio stream used by
+  the default preset.
 
 Verification date: 2026-11-05. Primary source pages and public HCN frontend
 bundles:

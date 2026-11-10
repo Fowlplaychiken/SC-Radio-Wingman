@@ -60,6 +60,7 @@ def test_station_config_and_validation(radio):
     assert radio.stations_from(stations) == {
         "The Base": "https://listen.thebase.sc",
         "HCN Radio": "https://hcnradio.ddns.me/stream/1/",
+        "Star Citizen Radio": "https://streaming.live365.com/a31263",
     }
     assert radio.stations_from("Friend = https://example.com/listen?codec=mp3") == {
         "Friend": "https://example.com/listen?codec=mp3"

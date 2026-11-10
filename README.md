@@ -4,22 +4,22 @@
 
 # SC Radio
 
-Play community radio and music from your own library through Wingman AI. Tune in to **The Base** or **HCN Radio**, ask for an album, or shuffle your playlist. Audio plays directly through mpv, with Wingman’s standard custom-skill interface.
+Play community radio and music from your own library through Wingman AI. Tune in to **The Base**, **HCN Radio**, or **Star Citizen Radio**, ask for an album, or shuffle your playlist. Audio plays directly through mpv, with Wingman’s standard custom-skill interface.
 
-**v0.2.4** · **Wingman custom skill API v3** · **Tested on Windows** · [GPL-3.0](LICENSE)
+**v0.2.5** · **Wingman custom skill API v3** · **Tested on Windows** · [GPL-3.0](LICENSE)
 
-**[Download the install ZIP](https://raw.githubusercontent.com/Fowlplaychiken/SC-Radio-Wingman/NewRepo/downloads/sc_radio-0.2.4.zip)** · [Quick start](#install) · [What to say](#use) · [Add stations or music](#configure-stations-and-songs)
+**[Download the install ZIP](https://raw.githubusercontent.com/Fowlplaychiken/SC-Radio-Wingman/NewRepo/downloads/sc_radio-0.2.5.zip)** · [Quick start](#install) · [What to say](#use) · [Add stations or music](#configure-stations-and-songs)
 
 | Live radio and podcasts | Your music | Playback controls |
 | --- | --- | --- |
-| The Base and HCN Radio come preconfigured. Add direct streams, public RSS podcasts, or public YouTube and Twitch links. | Play selected MP3 and WAV files by title, artist, album, or genre. | Shuffle, queue, skip, repeat, mute, and adjust music volume by voice. |
+| The Base, HCN Radio, and Star Citizen Radio come preconfigured. Add direct streams, public RSS podcasts, or public YouTube and Twitch links. | Play selected MP3 and WAV files by title, artist, album, or genre. | Shuffle, queue, skip, repeat, mute, and adjust music volume by voice. |
 
 ## Install
 
-1. [Download SC Radio](https://raw.githubusercontent.com/Fowlplaychiken/SC-Radio-Wingman/NewRepo/downloads/sc_radio-0.2.4.zip) and extract it. On Windows, paste `%APPDATA%\ShipBit\WingmanAI\custom_skills` into File Explorer’s address bar and copy the extracted `sc_radio` folder there. The final path should end in `custom_skills\sc_radio\default_config.yaml`. On other platforms, use your Wingman installation’s custom skills folder.
+1. [Download SC Radio](https://raw.githubusercontent.com/Fowlplaychiken/SC-Radio-Wingman/NewRepo/downloads/sc_radio-0.2.5.zip) and extract it. On Windows, paste `%APPDATA%\ShipBit\WingmanAI\custom_skills` into File Explorer’s address bar and copy the extracted `sc_radio` folder there. The final path should end in `custom_skills\sc_radio\default_config.yaml`. On other platforms, use your Wingman installation’s custom skills folder.
 2. On Windows x64, open `sc_radio`, right-click `setup-player.ps1`, and choose **Run with PowerShell**. On Windows 11, the command may be under **Show more options**. Setup reuses mpv from a recognized location or downloads and checks the official release if needed. You can skip this step if mpv is already installed in a recognized location. Setup needs no administrator privileges.
 3. Restart Wingman and add **SC Radio** to your profile. Leave **mpv executable** blank for automatic detection. For a custom install location or another platform without a detected player, install mpv from the [official installation page](https://mpv.io/installation/) and enter its full executable path. Windows **Copy as path** works with or without quotes.
-4. Ask **“Tune in to The Base”** or **“Play HCN Radio.”** Leave **Station list** at its defaults unless you want to change it.
+4. Ask **“Tune in to Star Citizen Radio”**, **“Tune in to The Base”**, or **“Play HCN Radio.”** Leave **Station list** at its defaults unless you want to change it.
 
 The Windows helper downloads mpv directly from its publisher on demand and checks the archive and player against pinned SHA-256 hashes. Wingman only launches the player for playback. See the [player provenance](NOTICE.md#mpv-player).
 
@@ -65,6 +65,7 @@ Examples you can say or enter as requests:
 List my radio stations.
 Tune in to The Base.
 Play HCN Radio.
+Tune in to Star Citizen Radio.
 What songs, artists, or albums are in my library?
 Play <song title> by <artist>.
 Put on some <artist>.
@@ -107,6 +108,7 @@ unique name and one of the supported forms:
 ```text
 The Base = https://listen.thebase.sc
 HCN Radio = https://hcnradio.ddns.me/stream/1/
+Star Citizen Radio = https://streaming.live365.com/a31263
 My station = https://radio.example.org/live.mp3
 My podcast = rss:https://podcast.example.org/feed.xml
 My video station = https://www.youtube.com/@space-radio/live
@@ -171,7 +173,7 @@ the skill. To run the tests and build an install ZIP from a standalone checkout:
 ```shell
 python -m pip install pytest PyYAML
 python -m pytest -q
-python scripts/package.py sc_radio-0.2.4.zip
+python scripts/package.py sc_radio-0.2.5.zip
 ```
 
 The test suite uses inert Wingman and player fixtures. Live station playback
